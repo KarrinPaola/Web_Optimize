@@ -9,5 +9,5 @@ pip install Flask scipy numpy cvxpy
 
 flask run 
 
-Và kích vào link local host
+Và nhấn vào link local host
 
