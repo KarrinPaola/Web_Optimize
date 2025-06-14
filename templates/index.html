@@ -30,7 +30,7 @@
     <select id="problem-type">
         <option value="scipy">Tối ưu tổng quát (Scipy)</option>
         <option value="sqp">Quy hoạch phi tuyến (SQP)</option>
-        <option value="lp_interior_point">QHTT (PP Điểm trong)</option>
+        <option value="nlp_barrier">NLP (PP Điểm trong/Hàm chắn)</option>
         <option value="simplex">QHTT (Bảng đơn hình)</option>
         <option value="qp_active_set">QP (PP Tập hoạt động)</option>
         <option value="qp_null_space">QP có ràng buộc đẳng thức (PP Không gian Null)</option>
@@ -52,12 +52,11 @@
         <label for="simplex-A">Ma trận A_eq:</label><textarea id="simplex-A" rows="4" placeholder="[[2, 4, 3, 1, 0, 0], [4, 2, 3, 0, 1, 0], [3, 0, 1, 0, 0, 1]]"></textarea>
         <label for="simplex-b">Vector b_eq:</label><input type="text" id="simplex-b" placeholder="[46, 38, 21]">
     </div>
-    <div id="lp-interior-point-input" class="input-section" style="display:none;">
-        <h2>Quy hoạch tuyến tính (PP Điểm trong)</h2>
-        <p><b>Bài toán:</b> <code>min c'x</code>, s.t. <code>Ax = b, x ≥ 0</code>. Yêu cầu đưa bài toán về dạng chuẩn trước khi nhập.</p>
-        <label for="ip-c">Vector c:</label><input type="text" id="ip-c" placeholder="[-1, -1, 0, 0]">
-        <label for="ip-A">Ma trận A:</label><textarea id="ip-A" rows="3" placeholder="[[-1, 1, 1, 0], [1, 1, 0, 1]]"></textarea>
-        <label for="ip-b">Vector b:</label><input type="text" id="ip-b" placeholder="[1, 2]">
+    <div id="nlp-barrier-input" class="input-section" style="display:none;">
+        <h2>NLP (PP Điểm trong/Hàm chắn)</h2>
+        <p><b>Bài toán:</b> <code>min f(x)</code>, s.t. <code>gᵢ(x) ≤ 0</code>. Yêu cầu điểm `x0` phải thỏa mãn `gᵢ(x0) < 0` (nằm trong miền khả thi).</p>
+        <p>Code cần định nghĩa các hàm và biến: <code>objective_func</code>, <code>grad_func</code>, <code>ineq_constraint_funcs</code>, <code>ineq_jacobian_funcs</code>, <code>x0</code>, và tùy chọn <code>mu0</code>, <code>beta</code>.</p>
+        <textarea id="barrier-code" rows="20"></textarea>
     </div>
     <div id="qp-null-space-input" class="input-section" style="display:none;">
         <h2>QP có ràng buộc đẳng thức (PP Không gian Null)</h2>
@@ -68,7 +67,7 @@
         <label for="null-space-b">Vector b:</label><input type="text" id="null-space-b" placeholder="[0, 0]">
     </div>
     <div id="qp-active-set-input" class="input-section" style="display:none;">
-        <h2>QP có ràng buộc (PP Tập hoạt động)</h2>
+        <h2>QP (PP Tập hoạt động)</h2>
         <p><b>Bài toán:</b> <code>min (1/2)x'Gx + d'x</code>, s.t. <code>A_eq x = b_eq, A_ineq x ≥ b_ineq</code>.</p>
         <label for="active-set-x0">Điểm khả thi ban đầu x0:</label><input type="text" id="active-set-x0" placeholder="[2, 0]">
         <label for="active-set-G">Ma trận G:</label><input type="text" id="active-set-G" placeholder="[[2, 0], [0, 2]]">
@@ -85,12 +84,12 @@
     </div>
     <div id="newton-input" class="input-section" style="display:none;">
         <h2>Tối ưu không ràng buộc (PP Newton)</h2>
-        <p>Sử dụng đạo hàm bậc 2 để hội tụ nhanh. Cần định nghĩa <code>objective_func</code>, <code>gradient_func</code>, <code>hessian_func</code>, <code>x0</code>.</p>
+        <p>Sử dụng đạo hàm bậc 2 để hội tụ nhanh. Cần định nghĩa <code>objective_func</code>, <code>grad_func</code>, <code>hessian_func</code>, <code>x0</code>.</p>
         <textarea id="newton-code" rows="15"></textarea>
     </div>
     <div id="gradient-input" class="input-section" style="display:none;">
         <h2>Tối ưu không ràng buộc (PP Gradient)</h2>
-        <p>Phương pháp lặp cơ bản nhất. Cần định nghĩa <code>objective_func</code>, <code>gradient_func</code>, <code>x0</code>.</p>
+        <p>Phương pháp lặp cơ bản nhất. Cần định nghĩa <code>objective_func</code>, <code>grad_func</code>, <code>x0</code>.</p>
         <textarea id="gradient-code" rows="10"></textarea>
     </div>
 
@@ -105,7 +104,7 @@
     const inputSections = {
         scipy: document.getElementById('scipy-input'),
         simplex: document.getElementById('simplex-input'),
-        lp_interior_point: document.getElementById('lp-interior-point-input'),
+        nlp_barrier: document.getElementById('nlp-barrier-input'),
         qp_null_space: document.getElementById('qp-null-space-input'),
         qp_active_set: document.getElementById('qp-active-set-input'),
         sqp: document.getElementById('sqp-input'),
@@ -120,6 +119,7 @@
     document.getElementById('newton-code').value = `# Ví dụ: Tìm cực tiểu hàm Rosenbrock\n# Lưu ý: không cần "import numpy as np"\n\ndef objective_func(v):\n    x, y = v[0], v[1]\n    return 100 * (y - x**2)**2 + (1 - x)**2\n\ndef grad_func(v):\n    x, y = v[0], v[1]\n    dx = -400 * x * (y - x**2) - 2 * (1 - x)\n    dy = 200 * (y - x**2)\n    return np.array([dx, dy])\n\ndef hessian_func(v):\n    x, y = v[0], v[1]\n    d2x = 1200 * x**2 - 400 * y + 2\n    d2y = 200\n    dxdy = -400 * x\n    return np.array([[d2x, dxdy], [dxdy, d2y]])\n\nx0 = [0, 0]`;
     document.getElementById('gradient-code').value = `# Ví dụ: Tìm cực tiểu hàm Rosenbrock\n# Lưu ý: không cần "import numpy as np"\n\ndef objective_func(v):\n    x, y = v[0], v[1]\n    return 100 * (y - x**2)**2 + (1 - x)**2\n\ndef grad_func(v):\n    x, y = v[0], v[1]\n    dx = -400 * x * (y - x**2) - 2 * (1 - x)\n    dy = 200 * (y - x**2)\n    return np.array([dx, dy])\n\nx0 = [0, 0]`;
     document.getElementById('sqp-code').value = `# Ví dụ: Bài toán Hock-Schittkowski 71\n# min x1*x4*(x1+x2+x3) + x3\n# s.t. x1*x2*x3*x4 - 25 >= 0 (ineq)\n#      x1^2+...+x4^2 - 40 = 0 (eq)\n\ndef objective_func(x):\n    return x[0]*x[3]*(x[0]+x[1]+x[2]) + x[2]\n\ndef grad_func(x):\n    return np.array([x[3]*(2*x[0]+x[1]+x[2]), x[0]*x[3], x[0]*x[3] + 1, x[0]*(x[0]+x[1]+x[2])])\n\ndef eq_constraint_func(x):\n    return [x[0]**2 + x[1]**2 + x[2]**2 + x[3]**2 - 40]\n\ndef eq_jacobian_func(x):\n    return np.array([[2*x[0], 2*x[1], 2*x[2], 2*x[3]]])\n\ndef ineq_constraint_func(x):\n    return [x[0]*x[1]*x[2]*x[3] - 25]\n\ndef ineq_jacobian_func(x):\n    return np.array([[x[1]*x[2]*x[3], x[0]*x[2]*x[3], x[0]*x[1]*x[3], x[0]*x[1]*x[2]]])\n\nx0 = [1, 5, 5, 1]\n`;
+    document.getElementById('barrier-code').value = `# Bài tập trang 17/17 trong slide\n# min f(x1,x2,x3) = x1^2+2x2^2+x3^2+x1x2-2x2x3\n# s.t. g_i(x) <= 0\n\ndef objective_func(x):\n    return x[0]**2 + 2*x[1]**2 + x[2]**2 + x[0]*x[1] - 2*x[1]*x[2]\n\ndef grad_func(x):\n    return np.array([2*x[0]+x[1], 4*x[1]+x[0]-2*x[2], 2*x[2]-2*x[1]])\n\n# --- Ràng buộc bất đẳng thức g_i(x) <= 0 ---\nineq_constraint_funcs = [\n    lambda x: x[0]**2 + x[1]**2 - 4,   # g1\n    lambda x: x[1]**2 + x[2] - 3,       # g2\n    lambda x: -x[0] + x[1]**2 - 1,    # g3\n    lambda x: -x[0],                    # g4\n    lambda x: -x[1],                    # g5\n    lambda x: -x[2]                     # g6\n]\n\n# --- Gradient của các ràng buộc ---\nineq_jacobian_funcs = [\n    lambda x: np.array([2*x[0], 2*x[1], 0]),\n    lambda x: np.array([0, 2*x[1], 1]),\n    lambda x: np.array([-1, 2*x[1], 0]),\n    lambda x: np.array([-1, 0, 0]),\n    lambda x: np.array([0, -1, 0]),\n    lambda x: np.array([0, 0, -1])\n]\n\n# --- Tham số ban đầu ---\n# Lưu ý: x0 phải nằm nghiêm ngặt bên trong miền khả thi\nx0 = [0.1, 0.1, 0.1]\nmu0 = 1.0\nbeta = 0.2\n`;
 
     function updateInterface() {
         Object.values(inputSections).forEach(section => section.style.display = 'none');
@@ -142,15 +142,15 @@
 
         try {
             if (type === 'scipy') payload = { type, code: document.getElementById('scipy-code').value };
-            else if (type === 'lp_interior_point') payload = { type, A: safeJSONParse(document.getElementById('ip-A').value), b: safeJSONParse(document.getElementById('ip-b').value), c: safeJSONParse(document.getElementById('ip-c').value) };
             else if (type === 'simplex') payload = { type, c: safeJSONParse(document.getElementById('simplex-c').value, []), A_eq: safeJSONParse(document.getElementById('simplex-A').value, []), b_eq: safeJSONParse(document.getElementById('simplex-b').value, []) };
+            else if (type === 'nlp_barrier') payload = { type, code: document.getElementById('barrier-code').value };
             else if (type === 'qp_null_space') payload = { type, G: safeJSONParse(document.getElementById('null-space-G').value), d: safeJSONParse(document.getElementById('null-space-d').value), A: safeJSONParse(document.getElementById('null-space-A').value), b: safeJSONParse(document.getElementById('null-space-b').value) };
             else if (type === 'qp_active_set') payload = { type, x0: safeJSONParse(document.getElementById('active-set-x0').value), G: safeJSONParse(document.getElementById('active-set-G').value), d: safeJSONParse(document.getElementById('active-set-d').value), A_eq: safeJSONParse(document.getElementById('active-set-A-eq').value), b_eq: safeJSONParse(document.getElementById('active-set-b-eq').value), A_ineq: safeJSONParse(document.getElementById('active-set-A-ineq').value), b_ineq: safeJSONParse(document.getElementById('active-set-b-ineq').value) };
             else if (type === 'sqp') payload = { type, code: document.getElementById('sqp-code').value };
             else if (type === 'newton') payload = { type, code: document.getElementById('newton-code').value };
             else if (type === 'gradient_descent') payload = { type, code: document.getElementById('gradient-code').value };
         } catch (e) {
-            resultOutput.innerHTML = `<pre style="color: red;">Lỗi định dạng đầu vào. Vui lòng kiểm tra cú pháp JSON.\nLỗi: ${e.message}</pre>`;
+            resultOutput.innerHTML = `<pre style="color: red;">Lỗi định dạng đầu vào. Vui lòng kiểm tra lại cú pháp JSON.\nLỗi: ${e.message}</pre>`;
             solveBtn.disabled = false; return;
         }
         
@@ -168,9 +168,9 @@
             if (result.xp) html += `<hr><h3>Các bước trung gian (Null Space):</h3><h4>Giải pháp riêng x_p</h4><pre>${JSON.stringify(result.xp.map(v => v.toFixed(4)), null, 2)}</pre><h4>Cơ sở không gian null Z</h4><pre>${JSON.stringify(result.Z, (k, v) => typeof v === 'number' ? parseFloat(v.toFixed(4)) : v, 2)}</pre><h4>Nghiệm trong không gian null v*</h4><pre>${JSON.stringify(result.v_star, (k, v) => typeof v === 'number' ? parseFloat(v.toFixed(4)) : v, 2)}</pre>`;
             
             if (result.history) {
-                 if (type === 'lp_interior_point') {
-                    html += `<hr><h3>Lịch sử các bước lặp (Interior Point):</h3><table><thead><tr><th>k</th><th>μ (độ lệch)</th><th>||x_k||</th><th>||s_k||</th></tr></thead><tbody>`;
-                    result.history.forEach(step => { html += `<tr><td>${step.iteration}</td><td>${step.mu.toExponential(4)}</td><td>${Math.sqrt(step.x.reduce((a, b) => a + b*b, 0)).toFixed(3)}</td><td>${Math.sqrt(step.s.reduce((a, b) => a + b*b, 0)).toFixed(3)}</td></tr>`; });
+                 if (type === 'nlp_barrier') {
+                    html += `<hr><h3>Lịch sử các bước lặp (Barrier Method):</h3><table><thead><tr><th>k</th><th>μ_k</th><th>x_k</th><th>f(x_k)</th></tr></thead><tbody>`;
+                    result.history.forEach(step => { html += `<tr><td>${step.iteration}</td><td>${step.mu_k.toExponential(2)}</td><td>[${step.x_k.map(v => v.toFixed(4)).join(', ')}]</td><td>${step.f_x_k.toFixed(6)}</td></tr>`; });
                     html += '</tbody></table>';
                  } else if (type === 'qp_active_set') {
                     html += `<hr><h3>Lịch sử các bước lặp (Active Set):</h3><table><thead><tr><th>k</th><th>x_k</th><th>Tập hoạt động W_k</th><th>Hành động</th></tr></thead><tbody>`;
@@ -185,11 +185,11 @@
                         if(type === 'newton') col4Val = step.grad_norm.toExponential(4);
                         else if(type === 'sqp') col4Val = step.p_norm.toExponential(4);
                         else col4Val = step.alpha_k !== null ? step.alpha_k.toFixed(4) : 'N/A';
-                        html += `<tr><td>${step.iteration}</td><td>[${step.x_k.map(v => v.toFixed(4)).join(', ')}]</td><td>${step.f_x_k.toFixed(6)}</td><td>${col4Val}</td></tr>`;
+                        html += `<tr><td>${step.iteration}</td><td>[${step.x_k.map(v => v.toFixed(4)).join(', ')}]</td><td>${step.f_x_k.toFixed(6)}</td><td>${col4G_reducedval}</td></tr>`;
                     });
                     html += '</tbody></table>';
                  }
-            } else if (!result.success && type === 'scipy') {
+            } else if (type === 'scipy' && !result.success) { // Chỉ hiển thị JSON đầy đủ cho Scipy khi có lỗi
                 html += `<pre>${JSON.stringify(result, null, 2)}</pre>`;
             }
             resultOutput.innerHTML = html;

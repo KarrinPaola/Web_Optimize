@@ -29,13 +29,12 @@ def solve_scipy_problem(user_code):
     return {
         'success': bool(result.success), 
         'message': result.message, 
-        'solution': result.x.tolist(), # <--- SỬA LỖI: Đổi tên thành 'solution' cho nhất quán
+        'solution': result.x.tolist(), # <--- ĐÃ SỬA LỖI: Đổi tên thành 'solution' cho nhất quán
         'objective_value': float(result.fun)
     }
 
 def solve_with_simplex_tableau(c, A_eq, b_eq):
     """(2) QHTT - Đơn hình: Triển khai thuật toán Đơn hình 2 pha, trả về các bảng trung gian."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
     num_vars, num_constraints = len(c), len(A_eq)
     tableau = np.zeros((num_constraints + 1, num_vars + num_constraints + 1))
     tableau[:num_constraints, :num_vars] = A_eq; tableau[:num_constraints, num_vars:num_vars + num_constraints] = np.identity(num_constraints); tableau[:num_constraints, -1] = b_eq
@@ -101,33 +100,28 @@ def solve_with_simplex_tableau(c, A_eq, b_eq):
             solution[basis_col_index[0]] = tableau[i, -1]
     return {"success": True, "message": "Đã tìm thấy lời giải tối ưu.", "solution": solution.tolist(), "objective_value": -tableau[-1, -1], "tableaus": tableaus}
 
-def solve_lp_interior_point(A, b, c):
-    """(3) QHTT - Điểm trong: Triển khai phương pháp Primal-Dual Interior Point cơ bản cho LP."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
-    A, b, c = np.array(A, dtype=float), np.array(b, dtype=float), np.array(c, dtype=float)
-    m, n = A.shape; x, y, s = np.ones(n), np.ones(m), np.ones(n)
-    max_iter, tolerance, history = 30, 1e-7, []
+def solve_nlp_barrier_method(user_code):
+    """(3) NLP - Điểm trong/Hàm chắn: Giải NLP có ràng buộc BĐT bằng Barrier Method."""
+    safe_globals = {'np': np, 'norm': norm, '__builtins__': {'list': list, 'dict': dict, 'tuple': tuple, 'range': range, 'len': len, 'print': print}}
+    local_env = {}; exec(user_code, safe_globals, local_env)
+    f, grad_f = local_env.get('objective_func'), local_env.get('grad_func')
+    g_funcs, g_grads = local_env.get('ineq_constraint_funcs'), local_env.get('ineq_jacobian_funcs')
+    x_k, mu_k, beta = np.array(local_env.get('x0'), dtype=float), local_env.get('mu0', 1.0), local_env.get('beta', 0.1)
+    if not all([f, grad_f, g_funcs, g_grads, x_k is not None]): raise ValueError("Cần định nghĩa đầy đủ các hàm và biến.")
+    max_iter, tolerance, history = 30, 1e-6, []
     for k in range(max_iter):
-        rc, rb, mu = A.T @ y + s - c, A @ x - b, np.dot(x, s) / n
-        history.append({"iteration": k, "mu": mu, "x": x.tolist(), "s": s.tolist(), "y": y.tolist()})
-        if mu < tolerance: return {"success": True, "message": f"Thuật toán hội tụ sau {k} bước.", "solution": x.tolist(), "objective_value": np.dot(c, x), "history": history}
-        sigma = 0.4; X, S = np.diag(x), np.diag(s)
-        KKT_matrix = np.block([[np.zeros((n,n)), A.T, np.identity(n)], [A, np.zeros((m,m)), np.zeros((m,n))], [S, np.zeros((n,m)), X]])
-        rhs = np.concatenate([-rc, -rb, -X @ S @ np.ones(n) + sigma * mu * np.ones(n)])
-        try: delta = np.linalg.solve(KKT_matrix, rhs)
-        except np.linalg.LinAlgError: return {"success": False, "message": f"Lỗi ở bước lặp {k}: Ma trận KKT suy biến.", "history": history}
-        dx, dy, ds = delta[:n], delta[n:n+m], delta[n+m:]
-        alpha_p, alpha_d = 1.0, 1.0
-        for i in range(n):
-            if dx[i] < 0: alpha_p = min(alpha_p, -x[i] / dx[i])
-            if ds[i] < 0: alpha_d = min(alpha_d, -s[i] / ds[i])
-        eta = 0.99; alpha_p *= eta; alpha_d *= eta
-        x += alpha_p * dx; y += alpha_d * dy; s += alpha_d * ds
-    return {"success": False, "message": f"Không hội tụ sau {max_iter} bước.", "solution": x.tolist(), "objective_value": np.dot(c, x), "history": history}
+        for i, g_i in enumerate(g_funcs):
+            if g_i(x_k) >= 0: return {"success": False, "message": f"Lỗi ở bước lặp {k}: Điểm x_k vi phạm ràng buộc g_{i}(x) < 0.", "history": history}
+        history.append({"iteration": k, "mu_k": mu_k, "x_k": x_k.tolist(), "f_x_k": f(x_k)})
+        if mu_k < tolerance: return {"success": True, "message": f"Thuật toán hội tụ sau {k} bước.", "solution": x_k.tolist(), "objective_value": f(x_k), "history": history}
+        def barrier_objective(x): return f(x) - mu_k * np.sum([np.log(-g_i(x)) for g_i in g_funcs])
+        def barrier_gradient(x): return grad_f(x) - mu_k * np.sum([g_grad_i(x) / g_i(x) for g_i, g_grad_i in zip(g_funcs, g_grads)], axis=0)
+        res = spo.minimize(barrier_objective, x_k, method='BFGS', jac=barrier_gradient, tol=1e-5)
+        x_k, mu_k = res.x, mu_k * beta
+    return {"success": False, "message": f"Không hội tụ sau {max_iter} bước.", "solution": x_k.tolist(), "objective_value": f(x_k), "history": history}
 
 def solve_qp_null_space(G, d, A, b):
     """(4) QP - Không gian Null: Giải QP có ràng buộc đẳng thức bằng cách chiếu vào không gian null."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
     G = np.array(G, dtype=float); d = np.array(d, dtype=float); A = np.array(A, dtype=float); b = np.array(b, dtype=float)
     try: x_p = np.linalg.pinv(A) @ b
     except np.linalg.LinAlgError: return {"success": False, "message": "Lỗi: Không thể tìm giải pháp riêng."}
@@ -143,7 +137,6 @@ def solve_qp_null_space(G, d, A, b):
 
 def solve_qp_active_set(G, d, A_eq, b_eq, A_ineq, b_ineq, x0):
     """(5) QP - Tập hoạt động: Giải QP có cả ràng buộc đẳng thức và bất đẳng thức."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
     G=np.array(G, dtype=float); d=np.array(d, dtype=float); x_k = np.array(x0, dtype=float)
     has_eq = A_eq is not None and len(A_eq) > 0; has_ineq = A_ineq is not None and len(A_ineq) > 0
     if has_eq: A_eq = np.array(A_eq, dtype=float); b_eq = np.array(b_eq, dtype=float)
@@ -192,7 +185,7 @@ def solve_qp_active_set(G, d, A_eq, b_eq, A_ineq, b_ineq, x0):
     return {"success": False, "message": "Không hội tụ sau 50 bước.", "history": history}
 
 def _solve_eq_qp_subproblem(G, g, A):
-    """Hàm phụ cho Active Set: Giải bài toán con QP chỉ có ràng buộc đẳng thức."""
+    """Hàm phụ cho Active Set & SQP: Giải bài toán con QP chỉ có ràng buộc đẳng thức."""
     if A is None or A.shape[0] == 0:
         try: p = np.linalg.solve(G, -g)
         except np.linalg.LinAlgError: p = None
@@ -209,7 +202,6 @@ def _solve_eq_qp_subproblem(G, g, A):
 
 def solve_sqp(user_code):
     """(6) NLP - SQP: Giải bài toán phi tuyến tổng quát bằng cách giải tuần tự các bài toán QP."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
     safe_globals = {'np': np, 'norm': norm, '__builtins__': {'list': list, 'dict': dict, 'tuple': tuple, 'range': range, 'len': len, 'print': print}}
     local_env = {}; exec(user_code, safe_globals, local_env)
     f, g, x0 = local_env.get('objective_func'), local_env.get('grad_func'), local_env.get('x0')
@@ -236,10 +228,8 @@ def solve_sqp(user_code):
         x_k = x_next
     return {"success": False, "message": f"Không hội tụ sau {max_iter} bước.", "solution": x_k.tolist(), "objective_value": f(x_k), "history": history}
 
-
 def solve_newton_method(user_code):
     """(7) Tối ưu không ràng buộc - Newton: Sử dụng đạo hàm bậc 2, hội tụ rất nhanh."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
     safe_globals = {'np': np, 'inv': inv, 'norm': norm, '__builtins__': {'list': list, 'dict': dict, 'tuple': tuple, 'range': range, 'len': len, 'print': print}}
     local_env = {}; exec(user_code, safe_globals, local_env)
     required_keys = ['objective_func', 'gradient_func', 'hessian_func', 'x0']
@@ -258,7 +248,6 @@ def solve_newton_method(user_code):
 
 def solve_gradient_descent(user_code):
     """(8) Tối ưu không ràng buộc - Gradient: Phương pháp cơ bản nhất, dùng đạo hàm bậc 1."""
-    # ... (Code không đổi, giữ nguyên từ phiên bản trước)
     safe_globals = {'np': np, 'norm': norm, '__builtins__': {'list': list, 'dict': dict, 'tuple': tuple, 'range': range, 'len': len, 'print': print}}
     local_env = {}; exec(user_code, safe_globals, local_env)
     required_keys = ['objective_func', 'gradient_func', 'x0']
@@ -292,11 +281,10 @@ def solve():
     data = request.get_json()
     problem_type = data.get('type')
     
-    # Ánh xạ loại bài toán tới hàm giải tương ứng
     solvers = {
         'scipy': lambda d: solve_scipy_problem(d.get('code')),
         'simplex': lambda d: solve_with_simplex_tableau(np.array(d.get('c'), dtype=float), np.array(d.get('A_eq'), dtype=float), np.array(d.get('b_eq'), dtype=float)),
-        'lp_interior_point': lambda d: solve_lp_interior_point(d.get('A'), d.get('b'), d.get('c')),
+        'nlp_barrier': lambda d: solve_nlp_barrier_method(d.get('code')),
         'qp_null_space': lambda d: solve_qp_null_space(d.get('G'), d.get('d'), d.get('A'), d.get('b')),
         'qp_active_set': lambda d: solve_qp_active_set(d.get('G'), d.get('d'), d.get('A_eq'), d.get('b_eq'), d.get('A_ineq'), d.get('b_ineq'), d.get('x0')),
         'sqp': lambda d: solve_sqp(d.get('code')),
